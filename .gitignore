@@ -46,7 +46,7 @@ data/indexes/*
 !data/indexes/.gitkeep
 
 # Results
-results/*
+results/
 !results/.gitkeep
 
 # Logs
