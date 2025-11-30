@@ -1,0 +1,37 @@
+# Critique-Enhanced RAG Configuration
+
+# OpenAI Settings (API key loaded from .env file)
+embedding_model: "text-embedding-3-small"
+llm_model: "gpt-4o-mini"
+critic_model: "gpt-4o-mini"
+max_tokens: 256
+temperature: 0
+
+# Retrieval Settings
+initial_k: 20  # For critique RAG (retrieve more candidates)
+final_k: 5     # Final number of chunks for generation
+
+# Critique Settings
+max_iterations: 3
+quality_threshold: 8.0
+min_chunk_score: 6.0
+
+# Data Settings
+chunk_size: 512
+chunk_overlap: 50
+
+# Paths
+data_dir: "data/"
+raw_data_dir: "data/raw/"
+processed_data_dir: "data/processed/"
+index_dir: "data/indexes/"
+index_path: "data/indexes/faiss_index.bin"
+results_dir: "results/"
+
+# Logging
+log_level: "INFO"
+log_file: "logs/experiment.log"
+
+# Budget Tracking
+max_budget: 10.0  # USD
+track_costs: true
