@@ -1,8 +1,6 @@
 """
-Compute Oracle Quality Scores for RAG evaluation results.
-
-Oracle scores use an LLM to evaluate answer quality against ground truth,
-providing a human-like assessment of correctness, completeness, and clarity.
+Compute Oracle Quality Scores for ALL RAG models.
+Updates: Now includes Reranker RAG support.
 """
 
 import json
@@ -20,7 +18,7 @@ load_dotenv()
 # Initialize OpenAI client
 api_key = os.environ.get('OPENAI_API_KEY')
 if not api_key:
-    raise ValueError("OPENAI_API_KEY not found. Please set it in your .env file or environment variables.")
+    raise ValueError("OPENAI_API_KEY not found. Please set it in your .env file.")
 
 client = OpenAI(api_key=api_key)
 
@@ -30,66 +28,31 @@ def compute_oracle_score(
     question: str,
     model: str = "gpt-4o-mini"
 ) -> Dict[str, Any]:
-    """
-    Use LLM to evaluate answer quality against ground truth.
-    
-    Args:
-        prediction: Generated answer
-        reference: Ground truth answer
-        question: Original question
-        model: OpenAI model to use for evaluation
-        
-    Returns:
-        Dictionary with:
-            - correctness: 0-4
-            - completeness: 0-3
-            - clarity: 0-2
-            - conciseness: 0-1
-            - oracle_score: 0-10 (sum of above)
-            - reasoning: explanation
-    """
+    """Use LLM to evaluate answer quality against ground truth."""
     
     prompt = f"""You are evaluating the quality of an AI-generated answer against a ground truth answer.
 
 Question: {question}
-
 Ground Truth Answer: {reference}
-
 Generated Answer: {prediction}
 
 Evaluate the generated answer on a scale of 0-10 using the following rubric:
 
 1. CORRECTNESS (0-4 points):
-   - Does it provide the correct information?
-   - Does it match the ground truth semantically (not necessarily word-for-word)?
-   - 4: Perfectly correct, matches ground truth
-   - 3: Mostly correct, minor differences
-   - 2: Partially correct, some errors
-   - 1: Mostly incorrect
+   - 4: Perfectly correct, matches ground truth semantically
    - 0: Completely incorrect
 
 2. COMPLETENESS (0-3 points):
-   - Does it cover all key points from the ground truth?
    - 3: Covers all key information
-   - 2: Covers most key information
-   - 1: Covers some key information
    - 0: Missing most key information
 
 3. CLARITY (0-2 points):
-   - Is it clear, well-structured, and easy to understand?
    - 2: Very clear and well-structured
-   - 1: Acceptable clarity
-   - 0: Confusing or poorly structured
+   - 0: Confusing
 
 4. CONCISENESS (0-1 point):
-   - Is it appropriately concise (not too verbose, not too brief)?
-   - 1: Good length, appropriate detail
+   - 1: Good length
    - 0: Too verbose or too brief
-
-IMPORTANT:
-- Focus on semantic correctness, not exact word matching
-- A longer answer that's correct should not be penalized heavily
-- The generated answer may provide additional context - that's okay if it's correct
 
 Return ONLY this JSON format:
 {{
@@ -98,7 +61,7 @@ Return ONLY this JSON format:
   "clarity": <0-2>,
   "conciseness": <0-1>,
   "oracle_score": <sum of above, 0-10>,
-  "reasoning": "<brief 1-2 sentence explanation>"
+  "reasoning": "<brief 1 sentence explanation>"
 }}"""
     
     try:
@@ -108,216 +71,84 @@ Return ONLY this JSON format:
             temperature=0,
             response_format={"type": "json_object"}
         )
-        
-        result = json.loads(response.choices[0].message.content)
-        
-        # Validate and ensure oracle_score is the sum
-        oracle_score = (
-            result.get('correctness', 0) +
-            result.get('completeness', 0) +
-            result.get('clarity', 0) +
-            result.get('conciseness', 0)
-        )
-        result['oracle_score'] = oracle_score
-        
-        return result
-        
+        return json.loads(response.choices[0].message.content)
     except Exception as e:
         print(f"Error computing oracle score: {e}")
-        return {
-            'correctness': 0,
-            'completeness': 0,
-            'clarity': 0,
-            'conciseness': 0,
-            'oracle_score': 0,
-            'reasoning': f'Error: {str(e)}'
-        }
+        return {'oracle_score': 0}
 
-
-def compute_oracle_scores_for_results(
-    results_file: Path,
-    output_file: Path = None,
-    model: str = "gpt-4o-mini"
-) -> Dict[str, Any]:
-    """
-    Compute oracle scores for all results in a file.
+def compute_scores_for_file(results_file: Path, model_name: str):
+    """Compute scores for a specific results file."""
+    output_file = results_file.parent / f"{model_name}_with_oracle_{results_file.stem.split('_')[-1]}.json"
     
-    Args:
-        results_file: Path to evaluation results JSON
-        output_file: Path to save oracle scores (optional)
-        model: OpenAI model to use
-        
-    Returns:
-        Dictionary with oracle scores and statistics
-    """
+    print(f"\nProcessing {model_name.upper()}: {results_file.name}")
     
-    print(f"\n{'='*70}")
-    print(f"COMPUTING ORACLE SCORES: {results_file.name}")
-    print(f"{'='*70}\n")
-    
-    # Load results
     with open(results_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
     results = data.get('results', [])
-    print(f"Loaded {len(results)} results\n")
+    scores = []
     
-    # Compute oracle scores
-    oracle_scores = []
-    
-    for i, result in enumerate(tqdm(results, desc="Computing oracle scores")):
-        # Extract fields (handle different key names)
-        question = result.get('question') or result.get('query', '')
-        prediction = result.get('answer') or result.get('predicted_answer', '')
-        reference = result.get('ground_truth', '')
+    # Check if already computed
+    if data.get('oracle_stats'):
+        print(f"   ℹ️  Oracle scores already exist. Skipping.")
+        return
+
+    for result in tqdm(results, desc=f"   Computing {model_name} scores"):
+        # Handle key differences
+        pred = result.get('answer') or result.get('predicted_answer', '')
+        ref = result.get('ground_truth', '')
+        q = result.get('question') or result.get('query', '')
         
-        if not prediction or not reference:
-            print(f"Warning: Skipping result {i} - missing prediction or reference")
-            continue
-        
-        # Compute oracle score
-        oracle = compute_oracle_score(prediction, reference, question, model)
-        
-        # Add to result
-        result['oracle'] = oracle
-        oracle_scores.append(oracle['oracle_score'])
+        if pred and ref:
+            oracle = compute_oracle_score(pred, ref, q)
+            result['oracle'] = oracle
+            scores.append(oracle.get('oracle_score', 0))
     
-    # Compute statistics
-    oracle_stats = {
-        'mean': float(np.mean(oracle_scores)),
-        'std': float(np.std(oracle_scores)),
-        'min': float(np.min(oracle_scores)),
-        'max': float(np.max(oracle_scores)),
-        'median': float(np.median(oracle_scores)),
-        'count': len(oracle_scores)
-    }
-    
-    # Component statistics
-    component_stats = {
-        'correctness': {
-            'mean': float(np.mean([r['oracle']['correctness'] for r in results if 'oracle' in r])),
-            'max': 4
-        },
-        'completeness': {
-            'mean': float(np.mean([r['oracle']['completeness'] for r in results if 'oracle' in r])),
-            'max': 3
-        },
-        'clarity': {
-            'mean': float(np.mean([r['oracle']['clarity'] for r in results if 'oracle' in r])),
-            'max': 2
-        },
-        'conciseness': {
-            'mean': float(np.mean([r['oracle']['conciseness'] for r in results if 'oracle' in r])),
-            'max': 1
+    # Add stats to data object
+    if scores:
+        data['oracle_stats'] = {
+            'mean': float(np.mean(scores)),
+            'std': float(np.std(scores)),
+            'min': float(np.min(scores)),
+            'max': float(np.max(scores))
         }
-    }
-    
-    # Print summary
-    print(f"\n{'='*70}")
-    print("ORACLE SCORE SUMMARY")
-    print(f"{'='*70}")
-    print(f"Mean:   {oracle_stats['mean']:.4f}/10")
-    print(f"Std:    {oracle_stats['std']:.4f}")
-    print(f"Min:    {oracle_stats['min']:.4f}")
-    print(f"Max:    {oracle_stats['max']:.4f}")
-    print(f"Median: {oracle_stats['median']:.4f}")
-    print(f"\nComponent Breakdown:")
-    print(f"  Correctness:  {component_stats['correctness']['mean']:.2f}/4")
-    print(f"  Completeness: {component_stats['completeness']['mean']:.2f}/3")
-    print(f"  Clarity:      {component_stats['clarity']['mean']:.2f}/2")
-    print(f"  Conciseness:  {component_stats['conciseness']['mean']:.2f}/1")
-    print(f"{'='*70}\n")
-    
-    # Save results with oracle scores
-    if output_file:
-        data['oracle_stats'] = oracle_stats
-        data['oracle_component_stats'] = component_stats
         
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2)
-        
-        print(f"✅ Saved results with oracle scores to: {output_file}\n")
-    
-    return {
-        'oracle_stats': oracle_stats,
-        'component_stats': component_stats,
-        'results': results
-    }
-
+        print(f"   ✅ Saved to {output_file.name} (Mean Score: {np.mean(scores):.2f})")
+    else:
+        print("   ⚠️  No valid results to score.")
 
 def main():
-    """Main function to compute oracle scores for evaluation results."""
+    print("\n" + "="*60)
+    print("COMPUTING ORACLE SCORES FOR ALL MODELS")
+    print("="*60)
     
-    print("\n" + "="*70)
-    print("ORACLE QUALITY SCORE COMPUTATION")
-    print("="*70 + "\n")
-    
-    # Find latest evaluation results
     results_dir = Path("results")
     
-    # Find vanilla and critique results
-    vanilla_files = sorted(results_dir.glob("vanilla_rag_evaluation_*.json"))
-    critique_files = sorted(results_dir.glob("critique_rag_evaluation_*.json"))
-    
-    if not vanilla_files or not critique_files:
-        print("❌ Error: Could not find evaluation result files")
-        print(f"   Looking in: {results_dir.absolute()}")
-        print(f"   Vanilla files found: {len(vanilla_files)}")
-        print(f"   Critique files found: {len(critique_files)}")
-        return
-    
-    # Use latest files
-    vanilla_file = vanilla_files[-1]
-    critique_file = critique_files[-1]
-    
-    print(f"Vanilla RAG results:  {vanilla_file.name}")
-    print(f"Critique RAG results: {critique_file.name}\n")
-    
-    # Compute oracle scores for vanilla
-    print("Step 1: Computing oracle scores for Vanilla RAG...")
-    vanilla_output = results_dir / f"vanilla_rag_with_oracle_{vanilla_file.stem.split('_')[-1]}.json"
-    vanilla_oracle = compute_oracle_scores_for_results(
-        vanilla_file,
-        vanilla_output,
-        model="gpt-4o-mini"
-    )
-    
-    # Compute oracle scores for critique
-    print("Step 2: Computing oracle scores for Critique RAG...")
-    critique_output = results_dir / f"critique_rag_with_oracle_{critique_file.stem.split('_')[-1]}.json"
-    critique_oracle = compute_oracle_scores_for_results(
-        critique_file,
-        critique_output,
-        model="gpt-4o-mini"
-    )
-    
-    # Compare
-    print("\n" + "="*70)
-    print("ORACLE SCORE COMPARISON")
-    print("="*70)
-    
-    vanilla_mean = vanilla_oracle['oracle_stats']['mean']
-    critique_mean = critique_oracle['oracle_stats']['mean']
-    improvement = ((critique_mean - vanilla_mean) / vanilla_mean * 100) if vanilla_mean > 0 else 0
-    
-    print(f"\nOverall Oracle Score:")
-    print(f"  Vanilla RAG:  {vanilla_mean:.4f}/10")
-    print(f"  Critique RAG: {critique_mean:.4f}/10")
-    print(f"  Improvement:  {improvement:+.1f}%")
-    
-    print(f"\nComponent Scores:")
-    for component in ['correctness', 'completeness', 'clarity', 'conciseness']:
-        v_score = vanilla_oracle['component_stats'][component]['mean']
-        c_score = critique_oracle['component_stats'][component]['mean']
-        max_score = vanilla_oracle['component_stats'][component]['max']
-        
-        print(f"  {component.capitalize():13s}: {v_score:.2f}/{max_score} → {c_score:.2f}/{max_score}")
-    
-    print("\n" + "="*70)
-    print("✅ ORACLE SCORES COMPUTED SUCCESSFULLY!")
-    print("="*70)
-    print(f"\nNext step: Run 'python compare_results.py' to see updated comparison\n")
+    # Helper to find latest non-oracle file
+    def get_latest(pattern):
+        files = list(results_dir.glob(pattern))
+        # Filter out files that are already oracle outputs to avoid re-processing outputs
+        files = [f for f in files if "with_oracle" not in f.name]
+        return max(files, key=lambda p: p.stat().st_mtime) if files else None
 
+    # 1. Vanilla
+    vanilla_file = get_latest("vanilla_rag_evaluation_*.json")
+    if vanilla_file: compute_scores_for_file(vanilla_file, "vanilla_rag")
+    
+    # 2. Reranker (This is the new part!)
+    reranker_file = get_latest("reranker_rag_evaluation_*.json")
+    if reranker_file: compute_scores_for_file(reranker_file, "reranker_rag")
+    else: print("\n❌ No Reranker results found. Run evaluate_reranker_rag.py first.")
+
+    # 3. Critique
+    critique_file = get_latest("critique_rag_evaluation_*.json")
+    if critique_file: compute_scores_for_file(critique_file, "critique_rag")
+
+    print("\n" + "="*60)
+    print("Done! Now run: python src/evaluation/compare_all.py")
+    print("="*60 + "\n")
 
 if __name__ == "__main__":
     main()
