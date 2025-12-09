@@ -20,12 +20,6 @@ logger = get_logger(__name__)
 class RerankerRAG:
     """
     Reranker RAG implementation using OpenAI Pointwise Scoring.
-    
-    Pipeline:
-    1. Retrieve initial_k (e.g., 20) chunks via Vector Store
-    2. Score each chunk (0-10) using LLM
-    3. Sort by score and select top_k (e.g., 5)
-    4. Generate answer using best chunks
     """
     
     def __init__(
@@ -59,17 +53,15 @@ class RerankerRAG:
     def rerank_chunks(self, query: str, chunks: List[str]) -> Dict[str, Any]:
         """
         Rerank chunks using Pointwise scoring (0-10).
-        This is more robust than sorting for smaller models.
         """
         if not chunks:
             return {"indices": [], "scores": []}
 
         # Construct a structured prompt for batch scoring
-        # We send all chunks but ask for individual scores
         passages_text = ""
         for i, chunk in enumerate(chunks):
-            # Truncate slightly to save tokens, though gpt-4o-mini has large context
-            clean_chunk = chunk.replace('\n', ' ')[:400] 
+            # FIX: Removed the [:400] truncation. We now use the full text.
+            clean_chunk = chunk.replace('\n', ' ')
             passages_text += f"ID_{i}: {clean_chunk}\n"
         
         prompt = f"""You are an expert relevance evaluator.
@@ -77,8 +69,8 @@ Query: {query}
 
 Below are {len(chunks)} text passages. Rate each passage's relevance to the query on a scale of 0-10.
 0.0 = Completely Irrelevant
-5.0 = Partially Relevant
-10.0 = Highly Relevant (Direct Answer)
+5.0 = Partially Relevant (Topic match but no answer)
+10.0 = Highly Relevant (Contains the specific answer)
 
 Return a JSON object mapping the ID (e.g., "ID_0") to the score (number).
 Example: {{"ID_0": 2.5, "ID_1": 9.0, ...}}
