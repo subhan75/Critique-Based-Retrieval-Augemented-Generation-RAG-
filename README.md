@@ -17,13 +17,13 @@ This project implements a **Critique-Enhanced RAG system** that uses an LLM-base
 
 ### 🎯 Key Results
 
-| Metric | Vanilla RAG | Critique RAG | Improvement |
-|--------|-------------|--------------|-------------|
-| **Oracle Score** | 5.41/10 | 5.97/10 | **+10.4%** ✅ |
-| **ROUGE-L** | 0.1615 | 0.1721 | +6.6% |
-| **Hallucination Rate** | N/A | 0.0% | ✅ Zero hallucinations |
-| **Refinement Rate** | N/A | 56.0% | - |
-| **Quality Score** | N/A | 8.03/10 | - |
+| Metric | Vanilla RAG | Reranker RAG | Critique RAG | Improvement |
+|--------|-------------|--------------|-------------|-------------|
+| **Oracle Score** | 5.21/10 | 4.98/10 | 6.62/10 | **+27.0%** ✅ |
+| **ROUGE-L** | 0.1522 | 0.1495  | 0.1722 | +13.1% |
+| **Hallucination Rate** | N/A | N/A | 0.0% | ✅ Zero hallucinations |
+| **Refinement Rate** | N/A | N/A | 56.0% | - |
+| **Quality Score** | N/A | N/A |8.03/10| - |
 
 **Key Finding**: The critique mechanism achieves **+10.4% improvement** in oracle quality scores, demonstrating that LLM-based critique effectively improves answer quality even when automatic metrics (ROUGE-L, BERTScore) show minimal improvement.
 
@@ -48,14 +48,17 @@ Critique-based-rag/
 │   │   └── embedding_generator.py       # Embedding generation
 │   │
 │   ├── 📁 models/                        # RAG implementations
-│   │   ├── vanilla_rag.py               # Baseline RAG system
-│   │   └── critique_rag.py              # Critique-enhanced RAG
+│   │   ├── vanilla_rag.py               # Baseline Vanilla RAG system
+│   │   ├── reranker_rag.py              # Baseline ReRanker RAG system
+|   |   └── critique_rag.py              # Critique-enhanced RAG
 │   │
 │   ├── 📁 evaluation/                    # Evaluation scripts
-│   │   ├── evaluate_vanilla_rag.py      # Evaluate baseline
+│   │   ├── evaluate_vanilla_rag.py      # Evaluate Vanilla baseline
+|   |   ├── evaluate_reranker_rag.py     # Evaluate ReRanker baseline
 │   │   ├── evaluate_critique_rag.py     # Evaluate critique RAG
+│   │   ├── compare_all.py               # Compares all 3 systems (Vanilla, ReRanker, and Critique)
 │   │   ├── compute_oracle_scores.py     # Compute oracle quality scores
-│   │   └── compare_results.py           # Compare both systems
+│   │   └── compare_results.py           # Compare both systems (Deprecated; Replaced by compare_all)
 │   │
 │   └── 📁 utils/                         # Utility functions
 │       ├── logger.py                     # Logging utilities
@@ -129,19 +132,20 @@ cp .env.example .env
 
 > **📦 Dataset Included**: The SQuAD v1.1 dataset (150 samples) is already included in `src/data/raw/squad_150.json`. **No download required!**
 
-### **TL;DR - Just Run These 3 Commands:**
+### **TL;DR - Just Run These 4 Commands:**
 
 ```bash
 python src/evaluation/evaluate_vanilla_rag.py    # ~15 min
+python src/evaluation/evaluate_reranker_rag.py   # ~15 min
 python src/evaluation/evaluate_critique_rag.py   # ~20 min
-python src/evaluation/compare_results.py         # ~1 min
+python src/evaluation/compare_all.py         # ~1 min
 ```
 
 Then check `results/comparison_table.txt` for the results! 🎉
 
 ---
 
-### **Complete Evaluation Pipeline** (3 Simple Steps)
+### **Complete Evaluation Pipeline** (4 Simple Steps)
 
 Run the complete evaluation pipeline to reproduce the results:
 
@@ -149,11 +153,14 @@ Run the complete evaluation pipeline to reproduce the results:
 # Step 1: Evaluate Vanilla RAG (baseline)
 python src/evaluation/evaluate_vanilla_rag.py
 
-# Step 2: Evaluate Critique RAG
+# Step 2: Evaluate ReRanker RAG (baseline)
+python src/evaluation/evaluate_reranker_rag.py
+
+# Step 3: Evaluate Critique RAG
 python src/evaluation/evaluate_critique_rag.py
 
-# Step 3: Compare Results
-python src/evaluation/compare_results.py
+# Step 4: Compare Results
+python src/evaluation/compare_all.py
 ```
 
 **That's it!** The comparison will show you:
@@ -174,11 +181,11 @@ python src/evaluation/compare_results.py
 If you want to add oracle quality scores to your evaluation:
 
 ```bash
-# After running Steps 1 & 2 above, run:
+# After running Steps 1, 2, & 3 above, run:
 python src/evaluation/compute_oracle_scores.py
 
 # Then compare again to see oracle scores:
-python src/evaluation/compare_results.py
+python src/evaluation/compare_all.py
 ```
 
 **Note**: Oracle scoring adds ~15 minutes and ~$0.50 in API costs, but provides valuable human-like quality assessment.
@@ -192,13 +199,13 @@ python src/evaluation/compare_results.py
 After running evaluations, check `results/comparison_table.txt`:
 
 ```
-╔══════════════════════════════════════════════════════════════════╗
-║           VANILLA RAG vs CRITIQUE RAG COMPARISON                 ║
-╠══════════════════════════════════════════════════════════════════╣
-║ Metric                    │ Vanilla RAG    │ Critique RAG        ║
-╠═══════════════════════════╪════════════════╪═════════════════════╣
-║ Oracle Score (mean)       │ 5.41/10        │ 5.97/10             ║
-║ Oracle improvement        │ -              │ +10.4%              ║
+╔═══════════════════════════════════════════════════════════════════════════════════╗
+║           VANILLA RAG vs RERANKER RAG vs CRITIQUE RAG COMPARISON                  ║
+╠═══════════════════════════════════════════════════════════════════════════════════╣
+║ Metric                    │ Vanilla RAG    │ ReRanker RAG   │ Critique RAG        ║
+╠═══════════════════════════╪════════════════╪════════════════╪═════════════════════╣
+║ Oracle Score (mean)       │ 5.21/10        │ 4.98/10        | 6.62/10             ║
+║ Oracle improvement        │ -              │ -4.4%          | +27.1%              ║
 ...
 ```
 
@@ -248,19 +255,25 @@ After running evaluations, check `results/comparison_table.txt`:
    - Retrieve top-5 chunks
    - Generate answer using GPT-4o-mini
 
-2. **Critique RAG**: Enhanced with critique and refinement
+2. **ReRanker RAG**: Retrieval optimization using LLM-based re-ranking
+   - Retrieve top-20 candidate chunks via vector search
+   - Score each chunk (0-10) using LLM-based pointwise evaluation
+   - Select top-5 chunks based on relevance scores
+   - Generate answer using GPT-4o-mini
+
+3. **Critique RAG**: Enhanced with critique and refinement
    - Retrieve top-5 chunks
    - Generate initial answer
    - Critique answer (quality, correctness, hallucinations)
    - Refine if quality score < 9.0
    - Re-critique refined answer
 
-3. **Oracle Scoring**: LLM-based quality evaluation
+4. **Oracle Scoring**: LLM-based quality evaluation
    - Use GPT-4o-mini to evaluate each answer
    - Score on correctness, completeness, clarity, conciseness
    - Compare against ground truth
 
-4. **Comparison**: Statistical analysis
+5. **Comparison**: Statistical analysis
    - Compute ROUGE-L, BERTScore, Oracle scores
    - Perform paired t-tests
    - Calculate effect sizes (Cohen's d)
@@ -342,6 +355,7 @@ chunk_overlap: 100  # Default: 50
 ### **Evaluation Results**
 
 - `vanilla_rag_evaluation_*.json`: Vanilla RAG results (150 samples)
+- `reranker_rag_evaluation_*.json`: ReRanker RAG results (150 samples)
 - `critique_rag_evaluation_*.json`: Critique RAG results (150 samples)
 - `*_with_oracle_*.json`: Results augmented with oracle scores
 
@@ -353,6 +367,7 @@ chunk_overlap: 100  # Default: 50
 ### **Logs**
 
 - `logs/evaluate_vanilla_rag.log`: Vanilla RAG evaluation log
+- `logs/evaluate_reranker_rag.log`: ReRanker RAG evaluation log
 - `logs/evaluate_critique_rag.log`: Critique RAG evaluation log
 
 ---
